@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Media Minds Admin Portal</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #f4f4f4;
+      margin: 0;
+      padding: 0;
+    }
+    .login-container, .dashboard {
+      max-width: 800px;
+      margin: 100px auto;
+      background: #fff;
+      padding: 2rem;
+      border-radius: 10px;
+      box-shadow: 0 0 15px rgba(0,0,0,0.1);
+    }
+    h2, h3 {
+      text-align: center;
+    }
+    input[type="text"], input[type="password"], input[type="number"], select {
+      padding: 10px;
+      margin: 5px;
+      border: 1px solid #ccc;
+      border-radius: 5px;
+    }
+    .tabs {
+      display: flex;
+      justify-content: space-around;
+      margin-top: 2rem;
+    }
+    .tabs button {
+      flex: 1;
+      padding: 10px;
+      border-radius: 0;
+      background-color: #007bff;
+      color: white;
+      border: none;
+      cursor: pointer;
+    }
+    .tab-content {
+      display: none;
+      margin-top: 1rem;
+    }
+    .tab-content.active {
+      display: block;
+    }
+    .result {
+      margin-top: 1rem;
+      padding: 1rem;
+      background-color: #e9ecef;
+      border-radius: 5px;
+    }
+    .item-row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .upload-box {
+      text-align: center;
+      margin-bottom: 1rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="login-container" id="loginBox">
+    <h2>Admin Login</h2>
+    <input type="text" id="username" placeholder="Username" />
+    <input type="password" id="password" placeholder="Password" />
+    <button onclick="login()">Login</button>
+    <p id="errorMsg" style="color: red; text-align: center; display: none;">Invalid credentials</p>
+  </div>
+
+  <div class="dashboard" id="dashboard" style="display: none;">
+    <h2>Welcome, Media Minds Admin</h2>
+    <div class="upload-box">
+      <input type="file" id="excelFile" accept=".xlsx" onchange="handleExcelUpload(event)" />
+    </div>
+    <div class="tabs">
+      <button onclick="showTab('ledger')">Ledger</button>
+      <button onclick="showTab('quote')">Quote Estimation</button>
+      <button onclick="showTab('invoice')">Invoice</button>
+    </div>
+    <div class="tab-content" id="ledger">
+      <h3>Ledger</h3>
+      <p>This is where your ledger data will be displayed.</p>
+    </div>
+    <div class="tab-content" id="quote">
+      <h3>Quote Estimation</h3>
+      <div id="quoteItems"></div>
+      <button onclick="addItem('quote')">Add Item</button>
+      <button onclick="downloadQuotePDF()">Download Quote PDF</button>
+      <div class="result" id="quoteResult"></div>
+    </div>
+    <div class="tab-content" id="invoice">
+      <h3>Invoice</h3>
+      <div id="invoiceItems"></div>
+      <button onclick="addItem('invoice')">Add Item</button>
+      <button onclick="downloadInvoicePDF()">Download Invoice PDF</button>
+      <div class="result" id="invoiceResult"></div>
+    </div>
+  </div>
+
+  <script>
+    let productData = [
+      { name: 'Logo Design', price: 500 },
+      { name: 'Website Development', price: 1200 },
+      { name: 'Social Media Setup', price: 800 }
+    ];
+
+    function login() {
+      const user = document.getElementById('username').value;
+      const pass = document.getElementById('password').value;
+      if (user === 'mediamindadmin' && pass === 'mediamind2025') {
+        document.getElementById('loginBox').style.display = 'none';
+        document.getElementById('dashboard').style.display = 'block';
+        showTab('quote');
+        addItem('quote');
+        addItem('invoice');
+      } else {
+        document.getElementById('errorMsg').style.display = 'block';
+      }
+    }
+
+    function showTab(tabName) {
+      document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
+      document.getElementById(tabName).classList.add('active');
+    }
+
+    function generateOptions() {
+      return `<option value="" disabled selected>Select Product/Service</option>` +
+        productData.map(p => `<option value="${p.price}">${p.name} - ₹${p.price}</option>`).join('');
+    }
+
+    function addItem(type) {
+      const container = document.getElementById(`${type}Items`);
+      const div = document.createElement('div');
+      div.classList.add('item-row');
+      div.innerHTML = `
+        <select onchange="autoPrice(this)">${generateOptions()}</select>
+        <input type="number" placeholder="Price" readonly oninput="updateTotal('${type}')" />
+        <input type="number" placeholder="Discount (%)" oninput="updateTotal('${type}')" />
+        <input type="number" placeholder="Tax (%)" oninput="updateTotal('${type}')" />
+        <input type="number" placeholder="Quantity" value="1" oninput="updateTotal('${type}')" />
+      `;
+      container.appendChild(div);
+      updateTotal(type);
+    }
+
+    function autoPrice(select) {
+      const price = select.value;
+      select.nextElementSibling.value = price;
+      const tab = select.closest('.tab-content').id;
+      updateTotal(tab);
+    }
+
+    function updateTotal(type) {
+      const items = document.querySelectorAll(`#${type}Items .item-row`);
+      let total = 0;
+      items.forEach(row => {
+        const price = parseFloat(row.children[1].value) || 0;
+        const discount = parseFloat(row.children[2].value) || 0;
+        const tax = parseFloat(row.children[3].value) || 0;
+        const quantity = parseFloat(row.children[4].value) || 1;
+        const discountedPrice = price - (price * discount / 100);
+        const taxedPrice = discountedPrice + (discountedPrice * tax / 100);
+        total += taxedPrice * quantity;
+      });
+      document.getElementById(`${type}Result`).innerHTML = `<strong>Total Payable:</strong> ₹${total.toFixed(2)}`;
+    }
+
+    function downloadQuotePDF() {
+      const result = document.getElementById('quoteResult').innerText;
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF();
+      doc.text("Quote Estimation", 10, 10);
+      doc.text(result, 10, 20);
+      doc.save("quote-estimation.pdf");
+    }
+
+    function downloadInvoicePDF() {
+      const result = document.getElementById('invoiceResult').innerText;
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF();
+      doc.text("Invoice", 10, 10);
+      doc.text(result, 10, 20);
+      doc.save("invoice.pdf");
+    }
+
+    function handleExcelUpload(event) {
+      const file = event.target.files[0];
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        const data = new Uint8Array(e.target.result);
+        const workbook = XLSX.read(data, { type: 'array' });
+        const sheetName = workbook.SheetNames[0];
+        const sheet = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName]);
+        productData = sheet.map(row => ({ name: row["Product/Service"], price: row["Price"] }));
+        alert('Product list updated from Excel!');
+      };
+      reader.readAsArrayBuffer(file);
+    }
+  </script>
+</body>
+</html>
